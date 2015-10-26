@@ -31,7 +31,8 @@ int main(int argc, char *argv[])
     unsigned int maxpc = 0;
     int pcstack[MAX_NESTING];
     int *top = pcstack, *limit = pcstack + MAX_NESTING;
-
+    unsigned int count = 0;
+    
     // Function prologue.
     |  push PTR
     |  mov  PTR, rdi      // rdi store 1st argument
@@ -39,16 +40,36 @@ int main(int argc, char *argv[])
     for (char *p = read_file(argv[1]); *p; p++) {
         switch (*p) {
         case '>':
-            |  inc  PTR
+            count = 1;
+            while(*(++p)=='>'){
+                count++;
+            }
+            p--;
+            |  add  PTR, count
             break;
         case '<':
-            |  dec  PTR
+            count = 1;
+            while(*(++p)=='<'){
+                    count++;
+            }
+            p--;
+            |  sub  PTR, count
             break;
         case '+':
-            |  inc  byte [PTR]
+            count = 1;
+            while(*(++p)=='+'){
+                    count++;
+            }
+            p--;
+            |  add  byte [PTR], count
             break;
         case '-':
-            |  dec  byte [PTR]
+            count = 1;
+            while(*(++p)=='-'){
+                    count++;
+            }
+            p--;
+            |  sub  byte [PTR], count
             break;
         case '.':
             |  movzx edi, byte [PTR]
@@ -63,12 +84,28 @@ int main(int argc, char *argv[])
             // Each loop gets two pclabels: at the beginning and end.
             // We store pclabel offsets in a stack to link the loop
             // begin and end together.
-            maxpc += 2;
-            *top++ = maxpc;
-            dasm_growpc(&state, maxpc);
-            |  cmp  byte [PTR], 0
-            |  je   =>(maxpc-2)
-            |=>(maxpc-1):
+
+            // [-] => *ptr = 0
+            if(*(p+1)=='-' && *(p+2)==']'){
+                p += 2;    // [-] => *ptr = 0
+                |  mov   byte [PTR], 0
+
+            // [>+<-] => *(ptr+1) += *ptr，*ptr = 0
+            } else if (*(p+1)=='-' && *(p+2)=='>' && *(p+3)=='+' && *(p+4)=='<' && *(p+5)==']'){
+                p+=5;
+                | mov   cl , byte [PTR]
+                | add   byte [PTR+1], cl
+                | mov   byte [PTR], 0
+                break;
+            }
+            else {
+                maxpc += 2;
+                *top++ = maxpc;
+                dasm_growpc(&state, maxpc);
+                |  cmp  byte [PTR], 0
+                |  je   =>(maxpc-2)
+                |=>(maxpc-1):
+            }
             break;
         case ']':
             if (top == pcstack) err("Unmatched ']'");
